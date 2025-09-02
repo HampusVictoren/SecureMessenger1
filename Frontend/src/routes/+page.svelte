@@ -1,2 +1,12 @@
+<script>
+    async function getWeather() {
+        const response = await fetch("http://localhost:5271/weatherforecast");
+        console.log(response);
+    }
+</script>
+
 <h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+
+GET WEATHER : <button on:click={getWeather}>
+    clickhere
+</button>
