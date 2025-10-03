@@ -32,12 +32,6 @@ public class AuthController : ControllerBase
 
         // If user not signed in -> challenge (this triggers your cookie/Identity flow).
         if (User.Identity?.IsAuthenticated != true)
-            //return Challenge(
-            //    authenticationSchemes: new[] { IdentityConstants.ApplicationScheme },
-            //    properties: new AuthenticationProperties
-            //    {
-            //        RedirectUri = HttpContext.Request.PathBase + HttpContext.Request.Path + QueryString.Create(Request.Query.ToDictionary(k => k.Key, v => v.Value.ToString()))
-            //    });
             return Challenge(
             authenticationSchemes: new[] { IdentityConstants.ApplicationScheme },
             properties: new AuthenticationProperties
@@ -90,17 +84,6 @@ public class AuthController : ControllerBase
             return SignIn(principal, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 
-        // OPTIONAL (temporary): Resource Owner Password Credentials (legacy; plan removal).
-        if (request.IsPasswordGrantType())
-        {
-            var user = await _userManager.FindByNameAsync(request.Username);
-            if (user == null || !await _userManager.CheckPasswordAsync(user, request.Password))
-                return Forbid(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-
-            var principal = await CreatePrincipalAsync(user, request.GetScopes());
-            return SignIn(principal, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-        }
-
         return BadRequest(new { error = Errors.UnsupportedGrantType, error_description = "Unsupported grant type." });
     }
 
@@ -129,14 +112,6 @@ public class AuthController : ControllerBase
             claims["name"] = user.UserName;
 
         return Ok(claims);
-    }
-
-    [HttpPost("logout")]
-    [ValidateAntiForgeryToken]
-    public IActionResult LogoutEndpoint()
-    {
-        // For front-channel logout + optional redirect.
-        return SignOut(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
     private async Task<ClaimsPrincipal> CreatePrincipalAsync(IdentityUser user, IEnumerable<string> requestedScopes)
@@ -196,6 +171,25 @@ public class AuthController : ControllerBase
             yield return Destinations.IdentityToken;
         }
     }
+
+    [HttpGet("logout")]
+    [IgnoreAntiforgeryToken]
+    public async Task<IActionResult> LogoutGet()
+    {
+        // Clear the OP’s local session so the next authorize won’t silently re-login.
+        await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+
+        // Complete the OIDC end-session flow (redirects to post_logout_redirect_uri).
+        return SignOut(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    //[HttpPost("logout")]
+    //[IgnoreAntiforgeryToken]
+    //public async Task<IActionResult> LogoutPost()
+    //{
+    //    await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+    //    return SignOut(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    //}
 }
 
 // Small helpers

@@ -1,0 +1,19 @@
+### Password Grant (get tokens)
+POST https://localhost:5001/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=spa&username=alice&password=Pass123$!&scope=openid%20profile%20email%20offline_access
+
+### After first response, copy values:
+@access_token = PASTE
+@refresh_token = PASTE
+
+### UserInfo
+GET https://localhost:5001/connect/userinfo
+Authorization: Bearer {{access_token}}
+
+### Refresh
+POST https://localhost:5001/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=spa&refresh_token={{refresh_token}}

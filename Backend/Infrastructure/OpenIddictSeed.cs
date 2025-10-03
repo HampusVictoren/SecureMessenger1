@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
@@ -13,35 +14,49 @@ public sealed class OpenIddictSeed : IHostedService
     {
         using var scope = _sp.CreateScope();
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        var logger  = scope.ServiceProvider.GetRequiredService<ILogger<OpenIddictSeed>>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
 
         var existing = await manager.FindByClientIdAsync("spa", ct);
 
-        // Minimal PKCE + Refresh permissions (no password grant)
         var permissions = new HashSet<string>
         {
             // Endpoints
             "ept:authorization",
             "ept:token",
             "ept:userinfo",
+            "ept:logout",
+            //"ept:revocation",
 
-            // Grant types
+            // Grants
             "gt:authorization_code",
             "gt:refresh_token",
 
-            // Response types
+            // Response types (add both to be version-agnostic)
+            "rsp:code",
             "rst:code",
+
 
             // Scopes
             "scp:openid",
             "scp:profile",
-            "scp:email",
+            //"scp:email",
             "scp:offline_access"
         };
 
-        var requirements = new HashSet<string>
+        var requirements = new HashSet<string> { Requirements.Features.ProofKeyForCodeExchange };
+
+        // Backend callbacks (must match OIDC options.CallbackPath = "/bff/callback")
+        var bffRedirects = new[]
         {
-            Requirements.Features.ProofKeyForCodeExchange
+            new Uri("https://localhost:7235/bff/callback")
+        };
+
+        // Post-logout redirects
+        var postLogoutRedirects = new[]
+        {
+            new Uri("https://localhost:7235/signout-callback-oidc"), // OIDC signout callback
+            new Uri("https://localhost:7235/")                       // optional SPA landing
         };
 
         if (existing is null)
@@ -53,45 +68,33 @@ public sealed class OpenIddictSeed : IHostedService
                 ClientType = ClientTypes.Public
             };
 
-            descriptor.RedirectUris.UnionWith(new[]
-            {
-                new Uri("http://localhost:5173/callback"),
-                new Uri("https://oauth.pstmn.io/v1/callback")
-            });
-
-            descriptor.PostLogoutRedirectUris.UnionWith(new[]
-            {
-                new Uri("http://localhost:5173/")
-            });
-
+            descriptor.RedirectUris.UnionWith(bffRedirects);
+           // descriptor.RedirectUris.UnionWith(postmanRedirects);
+            descriptor.PostLogoutRedirectUris.UnionWith(postLogoutRedirects);
             descriptor.Permissions.UnionWith(permissions);
             descriptor.Requirements.UnionWith(requirements);
 
             await manager.CreateAsync(descriptor, ct);
+            logger.LogInformation("Created OpenIddict app 'spa' with redirect_uris: {uris}", string.Join(", ", descriptor.RedirectUris));
+
+            var created = await manager.FindByClientIdAsync("spa", ct);
+            var perms = await manager.GetPermissionsAsync(created!, ct);
+            logger.LogInformation("Client 'spa' permissions: {perms}", string.Join(", ", perms));
         }
         else
         {
-            // Load current descriptor from the existing application
             var descriptor = new OpenIddictApplicationDescriptor();
             await manager.PopulateAsync(descriptor, existing, ct);
 
-            // Simple fields
             descriptor.DisplayName = "SPA Client";
             descriptor.ClientType = ClientTypes.Public;
 
-            // Collections: clear + add (don't reassign)
             descriptor.RedirectUris.Clear();
-            descriptor.RedirectUris.UnionWith(new[]
-            {
-                new Uri("http://localhost:5173/callback"),
-                new Uri("https://oauth.pstmn.io/v1/callback")
-            });
+            descriptor.RedirectUris.UnionWith(bffRedirects);
+            //descriptor.RedirectUris.UnionWith(postmanRedirects);
 
             descriptor.PostLogoutRedirectUris.Clear();
-            descriptor.PostLogoutRedirectUris.UnionWith(new[]
-            {
-                new Uri("http://localhost:5173/")
-            });
+            descriptor.PostLogoutRedirectUris.UnionWith(postLogoutRedirects);
 
             descriptor.Permissions.Clear();
             descriptor.Permissions.UnionWith(permissions);
@@ -100,6 +103,11 @@ public sealed class OpenIddictSeed : IHostedService
             descriptor.Requirements.UnionWith(requirements);
 
             await manager.UpdateAsync(existing, descriptor, ct);
+            logger.LogInformation("Updated OpenIddict app 'spa' with redirect_uris: {uris}", string.Join(", ", descriptor.RedirectUris));
+
+            var updated = await manager.FindByClientIdAsync("spa", ct);
+            var perms = await manager.GetPermissionsAsync(updated!, ct);
+            logger.LogInformation("Client 'spa' permissions: {perms}", string.Join(", ", perms));
         }
     }
 

@@ -4,3 +4,25 @@ GET {{Backend_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+### Password Grant (get tokens)
+POST https://localhost:5001/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=spa&username=alice&password=Pass123$!&scope=openid%20profile%20email%20offline_access
+
+### Copy access_token into this variable manually:
+@access_token = REPLACE_AFTER_FIRST_CALL
+@refresh_token = eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZDQkMtSFM1MTIiLCJraWQiOiI1MzA0MkM3OThENDRERjRERTJFMjE5ODI4QTQ1QUFGODk0NTQ1QTU2IiwidHlwIjoib2lfcmVmdCtqd3QiLCJjdHkiOiJKV1QifQ
+
+### UserInfo
+GET https://localhost:5001/connect/userinfo
+Authorization: Bearer {{access_token}}
+
+### Refresh
+POST https://localhost:5001/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=spa&refresh_token={{refresh_token}}
+
+# Response
