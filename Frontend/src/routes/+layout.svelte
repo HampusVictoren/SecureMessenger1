@@ -1,4 +1,4 @@
-<script lang="ts">
+<!-- <script lang="ts">
   import { onMount } from 'svelte';
   // import { initCsrf } from '$lib/initCsrf';
   import { getMe, login, signout } from '$lib/auth';
@@ -20,10 +20,7 @@
     login();
   }
 
-  // async function doLogoutAjax() {
-  //   const ok = await logoutAjax();
-  //   if (ok) await refresh();
-  // }
+
 
   function doSignout() {
     signout();
@@ -39,7 +36,6 @@
 {:else}
   {#if me}
     <p>Signed in as: <strong>{me.name}</strong></p>
-    <!-- <button on:click={doLogoutAjax}>Logout (AJAX)</button> -->
     <button on:click={doSignout}>Sign out (full)</button>
   {:else}
     <p>Not signed in.</p>
@@ -47,4 +43,41 @@
   {/if}
 {/if}
 
-<slot />
+<slot /> -->
+<script lang="ts">
+  import TopBar from "$lib/components/TopBar.svelte";
+  import Sidebar from "$lib/components/Sidebar.svelte";
+  import "$lib/styles/theme.css";
+</script>
+
+<TopBar />
+
+<main class="shell">
+  <Sidebar />
+  <section class="content">
+    <slot />
+  </section>
+</main>
+
+<style>
+.shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: calc(100vh - 66px);
+}
+.content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, var(--bg), var(--surface));
+}
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .content {
+    order: 2;
+  }
+}
+</style>

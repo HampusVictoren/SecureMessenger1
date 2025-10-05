@@ -16,11 +16,6 @@ export function login(): void {
   window.location.href = '/bff/login?returnUrl=' + encodeURIComponent(returnUrl);
 }
 
-// export async function logoutAjax(): Promise<boolean> {
-//   const resp = await postJson<unknown>('/bff/logout');
-//   return resp !== null;
-// }
-
 export function signout(): void {
   window.location.href = '/bff/signout';
 }
