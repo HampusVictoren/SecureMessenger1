@@ -1,14 +1,20 @@
-import { derived, get, writable } from "svelte/store";
-import type { Chat, Message, CreateChatRequest, CreateChatResponse, SendMessageRequest, SendMessageResponse } from "$lib/types";
-import { api } from "$lib/api/client";
+import { writable, derived, get } from "svelte/store";
+import type {
+  Chat,
+  Message,
+  CreateChatRequest,
+  CreateChatResponse,
+  SendMessageRequest,
+  SendMessageResponse
+} from "$lib/types";
+import { getJson, postJson } from "$lib/api";
+import { ensureConnected } from "$lib/realtime/signalr";
 
 type MessagesState = {
   loading: boolean;
   items: Message[];
   error?: string;
-  // optional real-time connection handle
-  es?: EventSource;
-  ws?: WebSocket;
+  joined?: boolean;
 };
 
 const chats = writable<Chat[]>([]);
@@ -19,10 +25,11 @@ const messagesByChat = writable<Record<string, MessagesState>>({});
 async function loadChats() {
   chatsLoading.set(true);
   try {
-    const data = await api.get<Chat[]>("/chats");
-    // sort by updatedAt desc
-    data.sort((a, b) => (new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
-    chats.set(data);
+    const data = await getJson<Chat[]>("/api/chats");
+    if (data) {
+      data.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      chats.set(data);
+    }
   } finally {
     chatsLoading.set(false);
   }
@@ -41,61 +48,20 @@ async function loadMessages(chatId: string) {
   const current = get(messagesByChat);
   current[chatId].loading = true;
   messagesByChat.set({ ...current });
+
   try {
-    const msgs = await api.get<Message[]>(`/chats/${encodeURIComponent(chatId)}/messages`);
-    current[chatId].items = msgs.sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime());
+    const msgs = await getJson<Message[]>(`/api/chats/${encodeURIComponent(chatId)}/messages`);
+    if (msgs) {
+      current[chatId].items = msgs.sort(
+        (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime()
+      );
+    }
   } catch (e: any) {
     current[chatId].error = e?.message || "Failed to load messages";
   } finally {
     current[chatId].loading = false;
     messagesByChat.set({ ...current });
   }
-}
-
-function connectRealtime(chatId: string, transport: "sse" | "ws" = "sse") {
-  ensureMessagesState(chatId);
-  const current = get(messagesByChat);
-  const state = current[chatId];
-
-  // Clean up old connection
-  state.es?.close?.();
-  state.ws?.close?.();
-
-  if (transport === "sse") {
-    const es = api.sse(`/chats/${encodeURIComponent(chatId)}/stream`, (evt) => {
-      try {
-        const data = JSON.parse(evt.data) as Message;
-        appendOrUpdateMessage(chatId, data);
-      } catch {
-        // ignore malformed
-      }
-    });
-    state.es = es;
-  } else {
-    const ws = api.ws(`/chats/${encodeURIComponent(chatId)}/ws`);
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as Message;
-        appendOrUpdateMessage(chatId, data);
-      } catch {
-        // ignore malformed
-      }
-    };
-    state.ws = ws;
-  }
-
-  messagesByChat.set({ ...current });
-}
-
-function disconnectRealtime(chatId: string) {
-  const current = get(messagesByChat);
-  const state = current[chatId];
-  if (!state) return;
-  state.es?.close?.();
-  state.ws?.close?.();
-  delete state.es;
-  delete state.ws;
-  messagesByChat.set({ ...current });
 }
 
 function appendOrUpdateMessage(chatId: string, msg: Message) {
@@ -106,17 +72,46 @@ function appendOrUpdateMessage(chatId: string, msg: Message) {
   if (idx >= 0) {
     state.items[idx] = { ...state.items[idx], ...msg };
   } else {
-    state.items = [...state.items, msg].sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime());
+    state.items = [...state.items, msg].sort(
+      (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime()
+    );
   }
   messagesByChat.set({ ...current });
 }
 
+async function connectSignalR(chatId: string) {
+  ensureMessagesState(chatId);
+  const hub = await ensureConnected();
+
+  // Subscribe once globally
+  if (!(hub as any).__subscribed) {
+    hub.on("ReceiveMessage", (msg: Message) => {
+      appendOrUpdateMessage(msg.chatId, msg);
+    });
+    (hub as any).__subscribed = true;
+  }
+
+  await hub.invoke("JoinChat", chatId);
+  const current = get(messagesByChat);
+  current[chatId].joined = true;
+  messagesByChat.set({ ...current });
+}
+
+async function disconnectSignalR(chatId: string) {
+  const hub = await ensureConnected();
+  await hub.invoke("LeaveChat", chatId);
+  const current = get(messagesByChat);
+  if (current[chatId]) current[chatId].joined = false;
+  messagesByChat.set({ ...current });
+}
+
 async function sendMessage(chatId: string, content: string) {
+  // optimistic UI
   const tempId = `temp-${crypto.randomUUID?.() || Math.random()}`;
   const optimistic: Message = {
     id: tempId,
     chatId,
-    senderId: "me", // your BFF should replace this; used only for UI alignment before server reply
+    senderId: "me",
     content,
     sentAt: new Date().toISOString(),
     status: "sending",
@@ -124,50 +119,49 @@ async function sendMessage(chatId: string, content: string) {
   appendOrUpdateMessage(chatId, optimistic);
 
   try {
-    const sent = await api.post<SendMessageResponse>(`/chats/${encodeURIComponent(chatId)}/messages`, {
-      content,
-    } as SendMessageRequest);
-
-    // Replace optimistic message
-    const current = get(messagesByChat);
-    const state = current[chatId];
+    const hub = await ensureConnected();
+    await hub.invoke("SendMessage", chatId, content);
+    // The real message will arrive via ReceiveMessage. Mark optimistic as sent in the meantime.
+    const map = get(messagesByChat);
+    const state = map[chatId];
     const idx = state.items.findIndex((m) => m.id === tempId);
     if (idx >= 0) {
-      state.items[idx] = sent.message;
-      messagesByChat.set({ ...current });
-    } else {
-      appendOrUpdateMessage(chatId, sent.message);
+      state.items[idx] = { ...state.items[idx], status: "sent" };
+      messagesByChat.set({ ...map });
     }
   } catch (e) {
-    // mark optimistic as failed
-    const current = get(messagesByChat);
-    const state = current[chatId];
+    const map = get(messagesByChat);
+    const state = map[chatId];
     const idx = state.items.findIndex((m) => m.id === tempId);
     if (idx >= 0) {
       state.items[idx] = { ...state.items[idx], status: "failed" };
-      messagesByChat.set({ ...current });
+      messagesByChat.set({ ...map });
     }
     throw e;
   }
 }
 
 async function createChatByUsername(username: string) {
-  const res = await api.post<CreateChatResponse>("/chats", { username } as CreateChatRequest);
+  const res = await postJson<{ chat: Chat }>(
+    "/api/chats",
+    { username } as CreateChatRequest
+  );
+  if (!res) return;
+  const chat = res.chat;
   const list = get(chats);
-  const exists = list.find((c) => c.id === res.chat.id);
-  if (!exists) {
-    chats.set([res.chat, ...list]);
+  if (!list.find((c) => c.id === chat.id)) {
+    chats.set([chat, ...list]);
   }
-  activeChatId.set(res.chat.id);
-  await loadMessages(res.chat.id);
-  connectRealtime(res.chat.id);
+  activeChatId.set(chat.id);
+  await loadMessages(chat.id);
+  await connectSignalR(chat.id);
 }
 
 function setActiveChat(id: string | null) {
   activeChatId.set(id);
   if (id) {
     loadMessages(id);
-    connectRealtime(id);
+    connectSignalR(id);
   }
 }
 
@@ -185,6 +179,6 @@ export const chatStore = {
   setActiveChat,
   sendMessage,
   createChatByUsername,
-  connectRealtime,
-  disconnectRealtime,
+  connectSignalR,
+  disconnectSignalR,
 };

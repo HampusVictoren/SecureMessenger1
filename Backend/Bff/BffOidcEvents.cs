@@ -16,18 +16,8 @@ public sealed class BffOidcEvents : OpenIdConnectEvents
         _logger = logger;
     }
 
-    //public override Task RedirectToIdentityProvider(RedirectContext context)
-    //{
-    //    _logger.LogInformation("OIDC redirect: client_id={client}, redirect_uri={redirect}, auth_endpoint={endpoint}",
-    //        context.ProtocolMessage.ClientId,
-    //        context.ProtocolMessage.RedirectUri,
-    //        context.ProtocolMessage.IssuerAddress);
-    //    return base.RedirectToIdentityProvider(context);
-    //}
-
     public override Task RedirectToIdentityProvider(RedirectContext context)
     {
-        // Pass through prompt=login if requested by caller
         if (context.Properties?.Items.TryGetValue("prompt", out var prompt) == true && !string.IsNullOrEmpty(prompt))
             context.ProtocolMessage.Prompt = prompt;
 
@@ -43,8 +33,22 @@ public sealed class BffOidcEvents : OpenIdConnectEvents
     {
         var sid = Guid.NewGuid().ToString("N");
 
-        var identity = (ClaimsIdentity)ctx.Principal!.Identity!;
+        // Build a minimal identity to keep the auth cookie small
+        var src = ctx.Principal!;
+        var sub = src.FindFirst("sub")?.Value
+                 ?? src.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                 ?? Guid.NewGuid().ToString("N");
+
+        var name = src.FindFirst("name")?.Value
+                ?? src.Identity?.Name
+                ?? sub;
+
+        var identity = new ClaimsIdentity("oidc", nameType: "name", roleType: "role");
+        identity.AddClaim(new Claim("sub", sub));
+        identity.AddClaim(new Claim("name", name));
         identity.AddClaim(new Claim("bff.sid", sid));
+
+        ctx.Principal = new ClaimsPrincipal(identity);
 
         // Store tokens in the server-side store (BFF)
         int expiresIn = int.TryParse(ctx.TokenEndpointResponse?.ExpiresIn, out var parsed)
@@ -65,7 +69,7 @@ public sealed class BffOidcEvents : OpenIdConnectEvents
             ExpiresAtUtc = DateTimeOffset.UtcNow.AddSeconds(expiresIn)
         });
 
-        // Keep only the id_token in the auth ticket so sign-out can send id_token_hint
+        // Keep only id_token for sign-out id_token_hint
         var idToken = ctx.ProtocolMessage.IdToken;
         if (!string.IsNullOrEmpty(idToken))
         {
@@ -76,7 +80,6 @@ public sealed class BffOidcEvents : OpenIdConnectEvents
         }
     }
 
-    // Clean up server-side tokens on sign-out redirect
     public override async Task RedirectToIdentityProviderForSignOut(RedirectContext context)
     {
         var sid = context.HttpContext.User.FindFirst("bff.sid")?.Value;
@@ -87,5 +90,4 @@ public sealed class BffOidcEvents : OpenIdConnectEvents
 
         await base.RedirectToIdentityProviderForSignOut(context);
     }
-
 }

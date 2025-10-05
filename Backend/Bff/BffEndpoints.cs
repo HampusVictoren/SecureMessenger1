@@ -22,6 +22,13 @@ public static class BffEndpoints
 
         bff.MapGet("/login", async (HttpContext ctx) =>
         {
+            // Do not initiate OIDC for AJAX calls — return 401 and let SPA handle top-level redirect
+            if (string.Equals(ctx.Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
             var returnUrl = ctx.Request.Query["returnUrl"].FirstOrDefault();
             var redirect = IsLocalUrl(returnUrl) ? returnUrl! : "/";
 

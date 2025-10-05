@@ -1,10 +1,13 @@
 using Backend.Bff;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
+using SecureMessenger.Backend.Services;
 using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -73,6 +76,15 @@ builder.Services.AddOpenIddict()
     });
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+//builder.Services.AddControllers(options =>
+//{
+//    // Require auth globally; adjust if needed
+//    var policy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+//    options.Filters.Add(new AuthorizeFilter(policy));
+//});
+
+builder.Services.AddSingleton<IChatService, InMemoryChatService>();
 
 // CORS (not needed for same-origin, but harmless if kept)
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
@@ -117,18 +129,34 @@ builder.Services.AddAuthentication(options =>
     options.SlidingExpiration = true;                // keep active sessions alive
     options.Events.OnRedirectToLogin = ctx =>
     {
-        // Return 401 for AJAX; otherwise redirect to options.LoginPath (/bff/login)
-        var isAjax =
-            string.Equals(ctx.Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase) ||
-            ctx.Request.Headers["Accept"].ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase);
+        var accept = ctx.Request.Headers["Accept"].ToString();
+        var isHtml = accept.Contains("text/html", StringComparison.OrdinalIgnoreCase);
 
-        if (ctx.Request.Path.StartsWithSegments("/bff") && isAjax)
+        var isAjax = string.Equals(
+            ctx.Request.Headers["X-Requested-With"],
+            "XMLHttpRequest",
+            StringComparison.OrdinalIgnoreCase);
+
+        var isSignalR = ctx.Request.Path.StartsWithSegments("/hubs")
+                        || ctx.Request.Query.ContainsKey("negotiate")
+                        || string.Equals(ctx.Request.Headers["Upgrade"], "websocket", StringComparison.OrdinalIgnoreCase);
+
+        var wantsJson = accept.Contains("application/json", StringComparison.OrdinalIgnoreCase);
+
+        // For any non-HTML/programmatic calls, return 401 instead of redirecting
+        if (!isHtml || isAjax || isSignalR || wantsJson)
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return Task.CompletedTask;
         }
 
         ctx.Response.Redirect(ctx.RedirectUri);
+        return Task.CompletedTask;
+    };
+
+    options.Events.OnRedirectToAccessDenied = ctx =>
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
         return Task.CompletedTask;
     };
 })
@@ -145,7 +173,7 @@ builder.Services.AddAuthentication(options =>
     options.SaveTokens = false;
     options.SignedOutCallbackPath = "/signout-callback-oidc";
 
-    options.GetClaimsFromUserInfoEndpoint = true;
+    options.GetClaimsFromUserInfoEndpoint = false;
     options.Scope.Clear();
     options.Scope.Add("openid");
     options.Scope.Add("profile");
@@ -221,6 +249,8 @@ app.UseCors(MyAllowSpecificOrigins);
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapHub<SecureMessenger.Backend.Hubs.ChatHub>("/hubs/chat");
+
 app.MapControllers();
 app.MapRazorPages();
 
@@ -271,6 +301,8 @@ app.MapWhen(ctx =>
             }
         });
     });
+
+
 
 
 

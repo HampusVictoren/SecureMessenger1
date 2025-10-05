@@ -6,16 +6,24 @@
 
   export let params: { id: string };
 
-  const { activeChat, messages, setActiveChat, connectRealtime, disconnectRealtime, sendMessage, loadMessages } = chatStore;
+  const {
+    activeChat,
+    messages,
+    setActiveChat,
+    connectSignalR,
+    disconnectSignalR,
+    sendMessage,
+    loadMessages
+  } = chatStore;
 
   onMount(async () => {
     setActiveChat(params.id);
     await loadMessages(params.id);
-    connectRealtime(params.id); // uses SSE by default
+    await connectSignalR(params.id);
   });
 
   onDestroy(() => {
-    disconnectRealtime(params.id);
+    disconnectSignalR(params.id);
   });
 
   async function handleSend(e: { text: string }) {
@@ -32,7 +40,6 @@
       <div class="sub">{$activeChat.participants.length} participants</div>
     </header>
 
-    <!-- Use explicit prop assignment -->
     <MessageList messages={$messages} participants={$activeChat.participants} />
 
     <MessageInput onSend={handleSend} />
@@ -42,14 +49,8 @@
 {/if}
 
 <style>
-.chat {
-  display: flex; flex-direction: column; min-height: 0; flex: 1;
-}
-.chat-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--surface), var(--bg));
-}
+.chat { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.chat-header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), var(--bg)); }
 .title { font-weight: 700; }
 .sub { color: var(--muted); font-size: 0.9rem; }
 .loading { padding: 16px; color: var(--muted); }
