@@ -1,15 +1,15 @@
 <script lang="ts">
   import { chatStore } from "$lib/stores/chats";
-  import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { get } from "svelte/store";
 
-  export let open: boolean = true;               // parent controls visibility via bind:open
+  export let open: boolean = true;
   export let onClose: (() => void) | null = null;
 
   let username = "";
   let loading = false;
   let error: string | null = null;
 
-  // IDs to wire up a11y relationships
   const uid = (typeof crypto !== "undefined" && "randomUUID" in crypto)
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
@@ -33,6 +33,10 @@
     loading = true;
     try {
       await chatStore.createChatByUsername(u);
+      const id = get(chatStore.activeChatId);
+      if (id) {
+        await goto(`/chat/${encodeURIComponent(id)}`);
+      }
       close();
     } catch (e: any) {
       error = e?.message || "Failed to create chat.";

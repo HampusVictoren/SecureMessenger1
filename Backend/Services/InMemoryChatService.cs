@@ -17,7 +17,6 @@ public class InMemoryChatService : IChatService
         var otherId = $"user-{targetUsername.ToLowerInvariant()}";
         var other = _users.GetOrAdd(otherId, _ => new UserDto(otherId, targetUsername, targetUsername, null));
 
-        // Try to find existing chat with exactly these two participants
         var existing = _chats.Values.FirstOrDefault(c =>
         {
             var ids = c.Participants.Select(p => p.Id).OrderBy(x => x).ToArray();
@@ -30,14 +29,7 @@ public class InMemoryChatService : IChatService
 
         var chatId = $"chat-{NewId()}";
         var participants = new List<UserDto> { me, other };
-        var chat = new ChatDto(
-            Id: chatId,
-            Title: null,
-            Participants: participants,
-            LastMessage: null,
-            UnreadCount: 0,
-            UpdatedAt: DateTimeOffset.UtcNow
-        );
+        var chat = new ChatDto(chatId, null, participants, null, 0, DateTimeOffset.UtcNow);
 
         _chats[chatId] = chat;
         _messages[chatId] = new List<MessageDto>();
@@ -59,8 +51,7 @@ public class InMemoryChatService : IChatService
             return Task.FromResult<IReadOnlyList<MessageDto>>(Array.Empty<MessageDto>());
 
         var msgs = _messages.GetValueOrDefault(chatId) ?? new List<MessageDto>();
-        var ordered = msgs.OrderBy(m => m.SentAt).ToList();
-        return Task.FromResult<IReadOnlyList<MessageDto>>(ordered);
+        return Task.FromResult<IReadOnlyList<MessageDto>>(msgs.OrderBy(m => m.SentAt).ToList());
     }
 
     public Task<MessageDto> AddMessageAsync(string userId, string chatId, string content)
@@ -68,14 +59,7 @@ public class InMemoryChatService : IChatService
         if (!_chats.TryGetValue(chatId, out var chat) || !chat.Participants.Any(p => p.Id == userId))
             throw new InvalidOperationException("Not a participant of this chat.");
 
-        var msg = new MessageDto(
-            Id: $"msg-{NewId()}",
-            ChatId: chatId,
-            SenderId: userId,
-            Content: content,
-            SentAt: DateTimeOffset.UtcNow,
-            Status: "sent"
-        );
+        var msg = new MessageDto($"msg-{NewId()}", chatId, userId, content, DateTimeOffset.UtcNow, "sent");
 
         var list = _messages.GetOrAdd(chatId, _ => new List<MessageDto>());
         lock (list)
@@ -83,10 +67,7 @@ public class InMemoryChatService : IChatService
             list.Add(msg);
         }
 
-        // Update chat metadata
-        var updated = chat with { LastMessage = msg, UpdatedAt = msg.SentAt };
-        _chats[chatId] = updated;
-
+        _chats[chatId] = chat with { LastMessage = msg, UpdatedAt = msg.SentAt };
         return Task.FromResult(msg);
     }
 }

@@ -84,23 +84,53 @@ function isAuthRoute(pathname: string): boolean {
  * - Adds X-Requested-With so backend returns 401 (not 302) for AJAX under /bff
  * - Redirects top-level to /bff/login on 401, preserving returnUrl
  */
+// export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+//   const url = path.startsWith('http') ? path : path;
+
+//   const method = (init.method ?? 'GET').toUpperCase();
+//   const headers = new Headers(init.headers as HeadersInit);
+
+//   headers.set('Accept', 'application/json');
+//   headers.set('X-Requested-With', 'XMLHttpRequest');
+
+//   const resp = await fetch(url, {
+//     ...init,
+//     method,
+//     headers,
+//     credentials: 'include'
+//   });
+
+//   // Redirect to BFF login on 401 (browser context only)
+//   if (resp.status === 401 && typeof window !== 'undefined') {
+//     const { pathname, href } = window.location;
+//     if (!isAuthRoute(pathname)) {
+//       window.location.href = '/bff/login?returnUrl=' + encodeURIComponent(href);
+//     }
+//     throw new Error('Unauthorized');
+//   }
+
+//   return resp;
+// }
+
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const url = path.startsWith('http') ? path : path;
-
   const method = (init.method ?? 'GET').toUpperCase();
   const headers = new Headers(init.headers as HeadersInit);
 
   headers.set('Accept', 'application/json');
   headers.set('X-Requested-With', 'XMLHttpRequest');
 
-  const resp = await fetch(url, {
-    ...init,
-    method,
-    headers,
-    credentials: 'include'
-  });
+  const resp = await fetch(url, { ...init, method, headers, credentials: 'include' });
 
-  // Redirect to BFF login on 401 (browser context only)
+  const ct = resp.headers.get('content-type') || '';
+  if (resp.redirected || ct.includes('text/html')) {
+    if (typeof window !== 'undefined') {
+      const href = window.location.href;
+      window.location.href = '/bff/login?returnUrl=' + encodeURIComponent(href);
+    }
+    throw new Error('Redirected to login');
+  }
+
   if (resp.status === 401 && typeof window !== 'undefined') {
     const { pathname, href } = window.location;
     if (!isAuthRoute(pathname)) {
@@ -112,19 +142,43 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return resp;
 }
 
-export async function getJson<T>(path: string): Promise<T | null> {
+// export async function getJson<T>(path: string): Promise<T | null> {
+//   const resp = await apiFetch(path);
+//   if (!resp.ok) return null;
+//   return (await resp.json()) as T;
+// }
+
+// export async function postJson<T>(path: string, body?: unknown): Promise<T | null> {
+//   const resp = await apiFetch(path, {
+//     method: 'POST',
+//     headers: { 'Content-Type': 'application/json' },
+//     body: body === undefined ? undefined : JSON.stringify(body)
+//   });
+//   if (!resp.ok) return null;
+//   const txt = await resp.text();
+//   return txt ? (JSON.parse(txt) as T) : (null as T | null);
+// }
+
+
+export async function getJson<T>(path: string): Promise<T> {
   const resp = await apiFetch(path);
-  if (!resp.ok) return null;
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`GET ${path} failed: ${resp.status} ${resp.statusText} ${text}`);
+  }
   return (await resp.json()) as T;
 }
 
-export async function postJson<T>(path: string, body?: unknown): Promise<T | null> {
+export async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const resp = await apiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  if (!resp.ok) return null;
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`POST ${path} failed: ${resp.status} ${resp.statusText} ${text}`);
+  }
   const txt = await resp.text();
-  return txt ? (JSON.parse(txt) as T) : (null as T | null);
+  return txt ? (JSON.parse(txt) as T) : (undefined as unknown as T);
 }

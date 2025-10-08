@@ -11,8 +11,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Backend.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20250925193716_AddOpenIddictTables")]
-    partial class AddOpenIddictTables
+    [Migration("20251008182922_Init")]
+    partial class Init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -428,6 +428,98 @@ namespace Backend.Migrations
                     b.ToTable("OpenIddictTokens", (string)null);
                 });
 
+            modelBuilder.Entity("SecureMessenger.Backend.Models.Chat", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LastMessageId")
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PairKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastMessageId");
+
+                    b.HasIndex("PairKey")
+                        .IsUnique()
+                        .HasFilter("\"PairKey\" IS NOT NULL");
+
+                    b.HasIndex("UpdatedAt");
+
+                    b.ToTable("Chats");
+                });
+
+            modelBuilder.Entity("SecureMessenger.Backend.Models.ChatParticipant", b =>
+                {
+                    b.Property<string>("ChatId")
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("ChatId", "UserId");
+
+                    b.ToTable("ChatParticipants");
+                });
+
+            modelBuilder.Entity("SecureMessenger.Backend.Models.Message", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ChatId")
+                        .IsRequired()
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId");
+
+                    b.ToTable("Messages");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -503,6 +595,38 @@ namespace Backend.Migrations
                     b.Navigation("Authorization");
                 });
 
+            modelBuilder.Entity("SecureMessenger.Backend.Models.Chat", b =>
+                {
+                    b.HasOne("SecureMessenger.Backend.Models.Message", "LastMessage")
+                        .WithMany()
+                        .HasForeignKey("LastMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("LastMessage");
+                });
+
+            modelBuilder.Entity("SecureMessenger.Backend.Models.ChatParticipant", b =>
+                {
+                    b.HasOne("SecureMessenger.Backend.Models.Chat", "Chat")
+                        .WithMany("Participants")
+                        .HasForeignKey("ChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chat");
+                });
+
+            modelBuilder.Entity("SecureMessenger.Backend.Models.Message", b =>
+                {
+                    b.HasOne("SecureMessenger.Backend.Models.Chat", "Chat")
+                        .WithMany("Messages")
+                        .HasForeignKey("ChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chat");
+                });
+
             modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
                 {
                     b.Navigation("Authorizations");
@@ -513,6 +637,13 @@ namespace Backend.Migrations
             modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
                 {
                     b.Navigation("Tokens");
+                });
+
+            modelBuilder.Entity("SecureMessenger.Backend.Models.Chat", b =>
+                {
+                    b.Navigation("Messages");
+
+                    b.Navigation("Participants");
                 });
 #pragma warning restore 612, 618
         }

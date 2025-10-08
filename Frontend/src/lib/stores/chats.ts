@@ -141,12 +141,9 @@ async function sendMessage(chatId: string, content: string) {
   }
 }
 
-async function createChatByUsername(username: string) {
-  const res = await postJson<{ chat: Chat }>(
-    "/api/chats",
-    { username } as CreateChatRequest
-  );
-  if (!res) return;
+async function createChatByUsername(username: string): Promise<string | null> {
+  const res = await postJson<{ chat: Chat }>("/api/chats", { username } as CreateChatRequest);
+  if (!res) return null;
   const chat = res.chat;
   const list = get(chats);
   if (!list.find((c) => c.id === chat.id)) {
@@ -155,6 +152,7 @@ async function createChatByUsername(username: string) {
   activeChatId.set(chat.id);
   await loadMessages(chat.id);
   await connectSignalR(chat.id);
+  return chat.id;
 }
 
 function setActiveChat(id: string | null) {

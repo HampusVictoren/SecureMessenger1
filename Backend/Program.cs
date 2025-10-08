@@ -84,7 +84,8 @@ builder.Services.AddSignalR();
 //    options.Filters.Add(new AuthorizeFilter(policy));
 //});
 
-builder.Services.AddSingleton<IChatService, InMemoryChatService>();
+//builder.Services.AddSingleton<IChatService, InMemoryChatService>();
+builder.Services.AddScoped<IChatService, EfChatService>();
 
 // CORS (not needed for same-origin, but harmless if kept)
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
@@ -123,7 +124,7 @@ builder.Services.AddAuthentication(options =>
     options.AccessDeniedPath = "/";                   // optional
     options.Cookie.Name = "BffCookie";
     options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;           // tighter when same-origin
+    options.Cookie.SameSite = SameSiteMode.None;           
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.ExpireTimeSpan = TimeSpan.FromDays(7);   // align with your UX
     options.SlidingExpiration = true;                // keep active sessions alive
@@ -249,9 +250,8 @@ app.UseCors(MyAllowSpecificOrigins);
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHub<SecureMessenger.Backend.Hubs.ChatHub>("/hubs/chat");
 
-app.MapControllers();
+
 app.MapRazorPages();
 
 // BFF endpoints
@@ -283,12 +283,40 @@ app.MapGet("/signout", (HttpContext http) =>
     return Results.SignOut(props, new[] { "BffCookie", "bff-oidc" });
 }).AllowAnonymous();
 
-// SPA fallback and dev proxy (only for non-API/identity paths)
+
+
+
+app.MapControllers();
+app.MapHub<SecureMessenger.Backend.Hubs.ChatHub>("/hubs/chat");
+
+//// SPA fallback and dev proxy (only for non-API/identity paths)
+//app.MapWhen(ctx =>
+//    !ctx.Request.Path.StartsWithSegments("/bff") &&
+//    !ctx.Request.Path.StartsWithSegments("/connect") &&
+//    !ctx.Request.Path.StartsWithSegments("/Identity"), //&&
+//                                                       //!ctx.Request.Path.StartsWithSegments("/__routes"),
+//    spaApp =>
+//    {
+//        spaApp.UseSpa(spa =>
+//        {
+//            spa.Options.SourcePath = Path.Combine(builder.Environment.ContentRootPath, "..", "Frontend");
+//            if (app.Environment.IsDevelopment())
+//            {
+//                // Match the protocol Vite prints in its console ("Local: https://localhost:5173" or http)
+//                spa.UseProxyToSpaDevelopmentServer("https://localhost:5173");
+//            }
+//        });
+//    });
+// SPA fallback and dev proxy (only for non-API/identity paths, and only for GETs)
 app.MapWhen(ctx =>
+    HttpMethods.IsGet(ctx.Request.Method) &&
+    !ctx.Request.Path.StartsWithSegments("/api") &&
+    !ctx.Request.Path.StartsWithSegments("/hubs") &&
     !ctx.Request.Path.StartsWithSegments("/bff") &&
     !ctx.Request.Path.StartsWithSegments("/connect") &&
-    !ctx.Request.Path.StartsWithSegments("/Identity"), //&&
-    //!ctx.Request.Path.StartsWithSegments("/__routes"),
+    !ctx.Request.Path.StartsWithSegments("/Identity") &&
+    !ctx.Request.Path.StartsWithSegments("/openapi") &&
+    !ctx.Request.Path.StartsWithSegments("/swagger"),
     spaApp =>
     {
         spaApp.UseSpa(spa =>
@@ -296,15 +324,11 @@ app.MapWhen(ctx =>
             spa.Options.SourcePath = Path.Combine(builder.Environment.ContentRootPath, "..", "Frontend");
             if (app.Environment.IsDevelopment())
             {
-                // Match the protocol Vite prints in its console ("Local: https://localhost:5173" or http)
+                // Match the protocol Vite prints in its console ("Local: https://localhost:5173")
                 spa.UseProxyToSpaDevelopmentServer("https://localhost:5173");
             }
         });
     });
-
-
-
-
 
 if (!app.Environment.IsDevelopment())
 {

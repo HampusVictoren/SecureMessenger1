@@ -2,12 +2,12 @@
   import { chatStore } from "$lib/stores/chats";
   import type { Chat } from "$lib/types";
   import { derived } from "svelte/store";
+  import { goto } from "$app/navigation";
 
   const { chats, chatsLoading, activeChatId, setActiveChat } = chatStore;
 
   function chatTitle(c: Chat): string {
     if (c.title) return c.title;
-    // Derive title from participants (excluding self, if your BFF marks it)
     return c.participants.map((p) => p.displayName || p.username).join(", ");
   }
 
@@ -19,6 +19,7 @@
 
   function openChat(id: string) {
     setActiveChat(id);
+    goto(`/chat/${encodeURIComponent(id)}`);
   }
 </script>
 

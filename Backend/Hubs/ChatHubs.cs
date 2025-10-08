@@ -16,14 +16,13 @@ public class ChatHub : Hub
         _service = service;
     }
 
-    private (string userId, string username) Current()
+    private (bool ok, string? userId, string username) TryCurrent()
     {
-        var userId = Context.User?.FindFirstValue("sub") ?? Context.UserIdentifier
-                     ?? throw new HubException("Missing user id.");
+        var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? Context.User?.FindFirstValue("sub");
         var username = Context.User?.FindFirstValue("preferred_username")
                        ?? Context.User?.Identity?.Name
                        ?? "user";
-        return (userId, username);
+        return (userId is not null, userId, username);
     }
 
     public async Task JoinChat(string chatId)
@@ -38,8 +37,10 @@ public class ChatHub : Hub
 
     public async Task SendMessage(string chatId, string content)
     {
-        var (userId, _) = Current();
-        var msg = await _service.AddMessageAsync(userId, chatId, content);
+        var (ok, userId, _) = TryCurrent();
+        if (!ok) throw new HubException("Unauthorized");
+
+        var msg = await _service.AddMessageAsync(userId!, chatId, content);
         await Clients.Group(chatId).SendAsync("ReceiveMessage", msg);
     }
 }

@@ -22,50 +22,74 @@ public class ChatsController : ControllerBase
         _hub = hub;
     }
 
-    private (string userId, string username) Current()
+    //private (string userId, string username) Current()
+    //{
+    //    var userId = User.FindFirstValue("sub") ?? throw new UnauthorizedAccessException();
+    //    var username = User.FindFirstValue("preferred_username") ?? User.Identity?.Name ?? "user";
+    //    return (userId, username);
+    //}
+    //private (string userId, string username) TryCurrent()
+    //{
+    //    var userId = User.FindFirstValue("sub")
+    //                 ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+    //                 ?? throw new UnauthorizedAccessException();
+
+    //    var username = User.FindFirstValue("preferred_username")
+    //                  ?? User.Identity?.Name
+    //                  ?? "user";
+    //    return (userId, username);
+    //}
+
+    private (bool ok, string? userId, string username) TryCurrent()
     {
-        var userId = User.FindFirstValue("sub") ?? throw new UnauthorizedAccessException();
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var username = User.FindFirstValue("preferred_username") ?? User.Identity?.Name ?? "user";
-        return (userId, username);
+        return (userId is not null, userId, username);
     }
+
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ChatDto>>> List()
     {
-        var (userId, _) = Current();
-        var chats = await _service.ListChatsAsync(userId);
+        var (ok, userId, _) = TryCurrent();
+        if (!ok) return Unauthorized();
+        var chats = await _service.ListChatsAsync(userId!);
         return Ok(chats);
     }
 
     [HttpPost]
-    public async Task<ActionResult<ChatDto>> Create([FromBody] CreateChatRequest req)
+    public async Task<ActionResult> Create([FromBody] CreateChatRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Username))
             return BadRequest("Username is required.");
 
-        var (userId, username) = Current();
-        var chat = await _service.CreateChatByUsernameAsync(userId, username, req.Username.Trim());
+        var (ok, userId, username) = TryCurrent();
+        if (!ok) return Unauthorized();
+
+        var chat = await _service.CreateChatByUsernameAsync(userId!, username, req.Username.Trim());
         return Ok(new { chat });
     }
 
     [HttpGet("{id}/messages")]
     public async Task<ActionResult<IReadOnlyList<MessageDto>>> Messages(string id)
     {
-        var (userId, _) = Current();
-        var messages = await _service.GetMessagesAsync(userId, id);
+        var (ok, userId, _) = TryCurrent();
+        if (!ok) return Unauthorized();
+
+        var messages = await _service.GetMessagesAsync(userId!, id);
         return Ok(messages);
     }
 
     [HttpPost("{id}/messages")]
-    public async Task<ActionResult<MessageDto>> Send(string id, [FromBody] SendMessageRequest req)
+    public async Task<ActionResult> Send(string id, [FromBody] SendMessageRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Content))
             return BadRequest("Content is required.");
 
-        var (userId, _) = Current();
-        var msg = await _service.AddMessageAsync(userId, id, req.Content.Trim());
+        var (ok, userId, _) = TryCurrent();
+        if (!ok) return Unauthorized();
 
-        // Also broadcast via SignalR so all participants update in real-time
+        var msg = await _service.AddMessageAsync(userId!, id, req.Content.Trim());
         await _hub.Clients.Group(id).SendAsync("ReceiveMessage", msg);
         return Ok(new { message = msg });
     }
